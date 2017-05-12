@@ -7,7 +7,7 @@ clear all;
 %Loads points3D and color, which should be Mx3 arrays
 
 load points;        
-
+tic
 prox = 70;      %Proximity in which points are considered part of a cluster
 step = 10;      %No. of points compared during one loop
 mincl = 20;     %minimal no. of points at which cluster is preserved
@@ -45,7 +45,7 @@ ptCloud = pointCloud(points3D, 'Color', color);
 %%
 %Clusterization - iterative algorithm checking 'step' nearest points, and
 %assigning any points closer than 'proximity' to the same cluster
-clust = zeros(size(points3D, 1));   %array for checking points affiliation to a preexisting cluster
+clust = zeros(size(points3D, 1), 1);   %array for checking points affiliation to a preexisting cluster
 k = 1;                              %cluster number
 n = 2;                              %point number
 groups(1, 1) = 1;                   %array (k, n) containing clusters and their points
@@ -53,8 +53,9 @@ clust(1) = 1;                       %first point of array is starting point
 cp = 1;                             %currently examined point (column index in groups matrix)
 
 while nnz(clust)<size(clust, 1)
+    pt = groups(k, cp);
     [indices,dists] = findNearestNeighbors(ptCloud,...
-        [points3D(groups(k, cp), 1) points3D(groups(k, cp), 2) points3D(groups(k, cp), 3)],step);
+        [points3D(pt, 1) points3D(pt, 2) points3D(pt, 3)],step);
     for i = 1:step
         if(dists(i)<prox && clust(indices(i)) == 0)
            clust(indices(i)) = k;
@@ -68,7 +69,9 @@ while nnz(clust)<size(clust, 1)
         cp = 1;
         k = k+1;
         n = 1;
+        if(~isempty(find(clust==0, 1, 'first')))
         groups(k, cp) = find(clust==0, 1, 'first');
+        end
     end
 end
 
@@ -82,7 +85,9 @@ i =1;
 while i<=size(groups, 1);
     while(k<mincl)
         if(groups(i, k) == 0)
-            groups(i,:) = [];
+            index = true(1, size(groups, 1));
+            index(i) = false;
+            groups = groups(index, :);
             i = i-1;
             break;
         end
