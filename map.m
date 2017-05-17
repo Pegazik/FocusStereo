@@ -48,6 +48,7 @@ sz = abs(zthresh-dzthresh);
 points3D = ptCloud.Location;
 color = ptCloud.Color;
 k = 0;
+del(1) = 0;
 for i = 1:size(points3D, 1)
     if(points3D(i, 1) > xthresh || points3D(i, 1) < dxthresh || points3D(i, 2) > ythresh ||...
            points3D(i, 2) < dythresh || points3D(i, 3) > zthresh || points3D(i, 3) < dzthresh)
@@ -55,10 +56,10 @@ for i = 1:size(points3D, 1)
         del(k) = i;
     end
 end
-
-points3D(del, :) = [];
-color(del, :) = [];
-
+if(any(del)) 
+    points3D(del, :) = [];
+    color(del, :) = [];
+end
 mapa = zeros(abs(zthresh-dzthresh)/(10*box), abs(xthresh-dxthresh)/(10*box), 3);
 mapa(:,:,3) = 1;
 for i = 1:size(points3D, 1)
