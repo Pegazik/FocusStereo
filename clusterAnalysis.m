@@ -13,7 +13,7 @@ function clusterAnalysis(ptCloud, varargin)
 %       default: [-2000, 4000]
 %       zlim - [z1, z2] - upper and lower limits of z axis (depth), 
 %       default: [-5000, -1000]
-
+tic
 p = inputParser;
 
 defaultxlim = [-1000, 2000];
@@ -50,12 +50,12 @@ colorD = ptCloud.Color;
 
 points3D = reshape(points3DD, size(points3DD, 1) * size(points3DD, 2), 3);
 color = reshape(colorD, size(colorD, 1) * size(colorD, 2), 3);
-tic
+
 ptCloud = pointCloud(points3D, 'Color', color);
 ptCloud = removeInvalidPoints(ptCloud);
 points3D = ptCloud.Location;
 color = ptCloud.Color;
-toc
+
 % First filter, limits the ptCloud to specified upper and lower bounds at
 % every axis, thus removing a lot of thrash points generated around area of
 % interest and makes ptCloud display properly
@@ -195,5 +195,5 @@ end
 %     'MarkerSize', 45);
 % camorbit(0, -30);
 % camzoom(1.5);
-
+toc
 end
