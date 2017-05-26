@@ -1,142 +1,74 @@
-%% STRUCTURE FROM MOTION FROM TWO VIEWS
-clear all; close all;
-cam1 = ipcam('http://192.168.1.26:8080/video');
-cam2 = ipcam('http://192.168.1.22:8080/video');
-right = snapshot(cam2);
-left = snapshot(cam1);
-right = imadjust(right, []);
-keft = imadjust(left, []);
-load stereoparams;
-% % Reading a pair of images
-%left = imread('left1.png');
-%right = imread('right1.png');
-f1 = figure;
-set(f1,'name','Original Images');
-imshowpair(left,right,'montage');
+function [ptCloud, varargout] = make3D(frameLeft, frameRight, stereoParams, varargin)
+% Function takes two pictures along with calculated stereo parameters and
+% computes point cloud from them based on depth of each pixel
+% Input arguments:
+% frameLeft - left image as MxNx3 array in RGB
+% frameRight - right image as MxNx3 array in RGB
+% stereoParams - camera parameters calculated druing camera calibration
+% optional input arguments:
+% Name-value pairs:
+% display - logical value, if true displays ptCloud after computation
+% WARNING: display is very time consuming - use only for testing
+% time - logical value, if true returns computation time in seconds as second output
+% Output:
+% ptCloud - computed point cloud
+% time - calculation time in seconds, returned only if time input was
+% specified as true
+% fig - if displaying, setting this to false prevents from creating new
+% figure for display
 
-% % Loading precomputed camera parameters
-%load upToScaleReconstructionCameraParameters.mat 
+p = inputParser;
 
-% % Removing Lens Distortion
-left = undistortImage(left, stereoParams.CameraParameters1);
-right = undistortImage(right, stereoParams.CameraParameters2);
-f2 = figure;
-set(f2,'name','Undistorted Images');
-imshowpair(left,right,'montage');
+defaultDisp = false;
+defaultTime = false;
+defaultFig = true;
 
-% % Finding point correspondences between the images
-% Detecting feature points
-imagePointsLeft = detectMinEigenFeatures(rgb2gray(left),'MinQuality',0.1);
+classes = {'numeric'};
+attributes = {'3d', 'size', [NaN, NaN, 3]};
+validateattributes(frameLeft, classes, attributes, mfilename, 'frameLeft', 1);
+validateattributes(frameRight, classes, attributes, mfilename, 'frameRight', 2);
+validateattributes(stereoParams, {'stereoParameters'}, {'scalar'}, mfilename, 'stereoParams', 3);
 
-% Visualizing detected points
-f3 = figure;
-set(f3,'name','Strongest Corners from the First Image');
-imshow(left,'InitialMagnification',50);
-hold on;
-plot(selectStrongest(imagePointsLeft, 120000));
+addParamValue(p, 'display', defaultDisp, @islogical);
+addParamValue(p, 'time', defaultTime, @islogical);
+addParamValue(p, 'fig', defaultFig, @islogical);
 
-% Creating the point tracker
-tracker = vision.PointTracker('MaxBidirectionalError',1,'NumPyramidLevels',5);
+parse(p, varargin{:});
 
-% Initializing the point tracker
-imagePointsLeft = imagePointsLeft.Location;
-initialize(tracker, imagePointsLeft, left);
+display = p.Results.display;
+time = p.Results.time;
+fig = p.Results.fig;
+if(time)
+    tic
+end
+% Rectify the frames.
+[frameLeftRect, frameRightRect] = ...
+    rectifyStereoImages(frameLeft, frameRight, stereoParams);
 
-% Tracking the points
-[imagePointsRight validIdx] = step(tracker, right);
-matchedPointsLeft = imagePointsLeft(validIdx,:);
-matchedPointsRight = imagePointsRight(validIdx,:);
+% Convert to grayscale.
+frameLeftGray  = rgb2gray(frameLeftRect);
+frameRightGray = rgb2gray(frameRightRect);
 
-% Visualizing correspondence
-f4 = figure;
-set(f4,'name','Tracked Features');
-showMatchedFeatures(left,right,matchedPointsLeft,matchedPointsRight);
+% Compute disparity.
+disparityMap = disparity(frameLeftGray, frameRightGray);
 
-% % Estimating the essential matrix
-% Estimating the fundamental matrix
-[E epipolarInliers] = estimateEssentialMatrix(...
-    matchedPointsLeft,matchedPointsRight,stereoParams.CameraParameters1,stereoParams.CameraParameters2,'Confidence',99.99);
+% Reconstruct 3-D scene.
+points3D = reconstructScene(disparityMap, stereoParams);
 
-% Finding epipolar inliers
-inlierPointsLeft = matchedPointsLeft(epipolarInliers, :);
-inlierPointsRight = matchedPointsRight(epipolarInliers, :);
+ptCloud = pointCloud(points3D, 'Color', frameLeftRect);
 
-% Displaying inlier matches
-f5 = figure;
-set(f5,'name','Epipolar Inliers');
-showMatchedFeatures(left, right, inlierPointsLeft, inlierPointsRight);
+% Filter ptCloud of Nan and Inf points
+ptCloud = removeInvalidPoints(ptCloud);
 
-% % Computing the camera pose
-% [orient loc] = relativeCameraPose(...
-%     E, cameraParams, inlierPointsLeft, inlierPointsRight);
+% If display option on, display ptCloud
+if(display)
+    showCloud(ptCloud, 'trim', true, 'fig', fig);
+end
 
-% % Reconstructing the 3D Locations of Matched Points
-% Detecting dense feature points. Using an ROI (Region-Of-Interest)
-% to exclude points close to the image edges.
-roi = [30, 30, size(left, 2) - 30, size(left, 1) - 30];
-imagePointsLeft = detectMinEigenFeatures(rgb2gray(left),'ROI',roi,...
-    'MinQuality',0.001);
-
-% Creating the point tracker
-tracker = vision.PointTracker('MaxBidirectionalError',1,'NumPyramidLevels',5);
-
-% Initializing the point tracker
-imagePointsLeft = imagePointsLeft.Location;
-initialize(tracker, imagePointsLeft, left);
-
-% Tracking the points
-[imagePointsRight validIdx] = step(tracker, right);
-matchedPointsLeft = imagePointsLeft(validIdx,:);
-matchedPointsRight = imagePointsRight(validIdx,:);
-
-% Computing the camera matrices for each position of the camera
-% The first camera is at the origin looking along the Z-axis. Thus, 
-% its rotation matrix is identity and its translation vector is 0.
-% camMatrix1 = cameraMatrix(cameraParams, eye(3), [0 0 0]);
-
-% Computing extrinsics of the second camera
-% [R t] = cameraPoseToExtrinsics(orient, loc);
-% camMatrix2 = cameraMatrix(cameraParams, R, t);
-
-% Computing the 3D points
-points3D = triangulate(matchedPointsLeft, matchedPointsRight,stereoParams);
-
-% Getting the color of each reconstructed point
-numPixels = size(left, 1) * size(left, 2);
-allColors = reshape(left, [numPixels 3]);
-colorIdx = sub2ind([size(left,1) size(left,2)],...
-    round(matchedPointsLeft(:,2)), round(matchedPointsLeft(:,1)));
-color = allColors(colorIdx,:);
-
-% Creating the point cloud
-ptCloud = pointCloud(points3D, 'Color', color);
-
-% % Displaying the 3D Point Cloud
-% Visualising the camera locations and orientations
-cameraSize = 0.3;
-f6 = figure;
-set(f6,'name','Up to Scale Reconstruction of the Scene');
-plotCamera('Size',cameraSize,'Color','r','Label','1','Opacity',0);
-hold on;
-grid on;
-% plotCamera('Location',loc,'Orientation',orient,'Size',cameraSize,...
-%     'Color','b','Label','2','Opacity',0);
-
-% Visualising the point cloud
-pcshow(ptCloud, 'VerticalAxis','y','VerticalAxisDir','down',...
-    'MarkerSize',45);
-
-% Rotating and zooming the plot
-camorbit(0, -30);
-camzoom(1.5);
-
-% Labelling the axes
-xlabel('x-axis');
-ylabel('y-axis');
-zlabel('z-axis');
-
-
-
-% % Fitting a Cubic Figure to the Point Cloud to Find the Searched Object
-
-% % Metric Reconstruction of the Scene
+% If timing option on, return processing time as additional output
+if(time)
+    time = toc;
+    varargout{1} = time;
+else
+    varargout{1} = 0;
+end

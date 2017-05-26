@@ -1,19 +1,18 @@
-function clusterAnalysis(ptCloud, varargin)
+function [groups] = clusterAnalysis(ptCloud, varargin)
 % CLUSTERANALYSIS function
 %   ptCloud - point cloud
 %   Name-value pairs:
-%       proximity - proximity in which points are considered part 
+%       proximity - proximity in which points are considered part
 %       of a cluster, default: 70
 %       step - number of points compared during one loop, default: 10
-%       minCluster - minimal number of points at which cluster is 
+%       minCluster - minimal number of points at which cluster is
 %       preserved, default: 20
-%       xlim - [x1, x2] - upper and lower limits of x axis (width), 
+%       xlim - [x1, x2] - upper and lower limits of x axis (width),
 %       default: [-1000, 2000]
-%       ylim - [y1, y2] - upper and lower limits of y axis (height), 
+%       ylim - [y1, y2] - upper and lower limits of y axis (height),
 %       default: [-2000, 4000]
-%       zlim - [z1, z2] - upper and lower limits of z axis (depth), 
+%       zlim - [z1, z2] - upper and lower limits of z axis (depth),
 %       default: [-5000, -1000]
-tic
 p = inputParser;
 
 defaultxlim = [-1000, 2000];
@@ -22,6 +21,9 @@ defaultylim = [-2000, 4000];
 defaultProx = 70;
 defaultStep = 10;
 defaultMinCl = 20;
+defaultDisp = 0;
+
+validateattributes(ptCloud, {'pointCloud'}, {'scalar'}, mfilename, 'ptCloud', 1);
 
 classes = {'numeric'};
 attributes = {'size', [1, 2]};
@@ -33,6 +35,7 @@ addParameter(p, 'zlim', defaultzlim, validFcn);
 addParameter(p, 'proximity', defaultProx, @isnumeric);
 addParameter(p, 'step', defaultStep, @isnumeric);
 addParameter(p, 'minCluster', defaultMinCl, @isnumeric);
+addParameter(p, 'display', defaultDisp, @islogical);
 parse(p, varargin{:});
 
 dxThresh = p.Results.xlim(1);
@@ -44,15 +47,8 @@ zthresh = p.Results.zlim(2);
 prox = p.Results.proximity;
 step = p.Results.step;
 mincl = p.Results.minCluster;
+display = p.Results.display;
 
-points3DD = ptCloud.Location;
-colorD = ptCloud.Color;
-
-points3D = reshape(points3DD, size(points3DD, 1) * size(points3DD, 2), 3);
-color = reshape(colorD, size(colorD, 1) * size(colorD, 2), 3);
-
-ptCloud = pointCloud(points3D, 'Color', color);
-ptCloud = removeInvalidPoints(ptCloud);
 points3D = ptCloud.Location;
 color = ptCloud.Color;
 
@@ -79,16 +75,17 @@ ptCloud = pointCloud(points3D, 'Color', color);
 
 % Clusterization - iterative algorithm checking 'step' nearest points, and
 % assigning any points closer than 'proximity' to the same cluster
+
 clust = zeros(size(points3D, 1), 1);% array for checking points affiliation
 % to a preexisting cluster
 k = 1;                              % cluster number
 n = 2;                              % point number
 groups(1, 1) = 1;                   % array (k, n) containing clusters
-                                    % and their points
-clust(1) = 1;                       % first point of array 
-                                    % is starting point
+% and their points
+clust(1) = 1;                       % first point of array
+% is starting point
 cp = 1;                             % currently examined point (column
-                                    % index in groups matrix)
+% index in groups matrix)
 
 while nnz(clust) < size(clust, 1)
     pt = groups(k, cp);
@@ -115,7 +112,7 @@ end
 
 % Second filter, discarding clusters smaller that minCl points
 if(size(groups, 2) > mincl)     % Checking if any cluster eligible
-                                % if not - skip filtering and display
+    % if not - skip filtering and display
     k = 1;
     i = 1;
     
@@ -134,66 +131,64 @@ if(size(groups, 2) > mincl)     % Checking if any cluster eligible
         k = 1;
     end
     
-    % Display starting ptCloud
-    figure(1);
-    hold on;
-    pcshow(ptCloud, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
-        'MarkerSize', 45);
-    camorbit(0, -30);
-    camzoom(1.5);
-    
-    % Display all clusters on single 3d plot, each with different  
-    % hue of red, each cluster also displayed on top of whole 
-    % cloud on it's own plot
-    for j = 1:size(groups, 1)
-        
+    if(display)
+        f1 = figure('Name', 'Clustered points on top of whole cloud', 'NumberTitle', 'off');
+        f2 = figure('Name', 'All Clusters', 'NumberTitle', 'off');
+        % Display starting ptCloud
+        figure(f1);
         hold on;
-        vec = groups(j, :);
-        vec = nonzeros(vec);    %creating vector of indices
-        pts = points3D(vec, :);
-        clr = color(vec, :);
-        clr2 = clr;
-        
-        clr(:, 1) = floor(255 / (7 + size(groups, 1))) * (j+7);
-        clr(:, 2) = 0;
-        clr(:, 3) = 0;
-        clr2(:, 1) = 0;
-        clr2(:, 2) = 255;
-        clr2(:, 3) = 0;
-        
-        ptClust = pointCloud(pts, 'Color', clr);
-        
-        % All clusters on top of whole cloud to recognize which points have
-        % been grouped and which have not
-        figure(1);
-        hold on;
-        pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
+        pcshow(ptCloud, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
             'MarkerSize', 45);
+        camorbit(0, -30);
+        camzoom(1.5);
         
-        % All clusters to display filtered ptCloud consisting only of
-        % clustered areas
-        figure(2);
-        hold on;
-        pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
-            'MarkerSize', 45);
+        % Display all clusters on single 3d plot, each with different
+        % hue of red, each cluster also displayed on top of whole
+        % cloud on it's own plot
         
-        % Single cluster displayed on top of ptCloud to analyze how and 
-        % where clusterization happens
-        figure(j + 3)
-        hold on;
-        ptClust = pointCloud(pts, 'Color', clr2);
-        pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
-            'MarkerSize', 45);
-        pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
-            'MarkerSize', 45);
+        for j = 1:size(groups, 1)
+            
+            hold on;
+            vec = groups(j, :);
+            vec = nonzeros(vec);    %creating vector of indices
+            pts = points3D(vec, :);
+            clr = color(vec, :);
+            clr2 = clr;
+            
+            clr(:, 1) = floor(255 / (7 + size(groups, 1))) * (j+7);
+            clr(:, 2) = 0;
+            clr(:, 3) = 0;
+            clr2(:, 1) = 0;
+            clr2(:, 2) = 255;
+            clr2(:, 3) = 0;
+            
+            ptClust = pointCloud(pts, 'Color', clr);
+            
+            % All clusters on top of whole cloud to recognize which points have
+            % been grouped and which have not
+            figure(f1)
+            hold on;
+            pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
+                'MarkerSize', 45);
+            
+            % All clusters to display filtered ptCloud consisting only of
+            % clustered areas
+            figure(f2);
+            hold on;
+            pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
+                'MarkerSize', 45);
+            
+            % Single cluster displayed on top of ptCloud to analyze how and
+            % where clusterization happens
+            figure('Name', strcat('Cluster number', j), 'NumberTitle', 'off')
+            hold on;
+            ptClust = pointCloud(pts, 'Color', clr2);
+            pcshow(ptCloud, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
+                'MarkerSize', 45);
+            pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
+                'MarkerSize', 45);
+        end
     end
+    
 end
 
-% Display starting ptCloud
-% figure(3);
-% pcshow(ptClust, 'VerticalAxis', 'y', 'VerticalAxisDir', 'down',...
-%     'MarkerSize', 45);
-% camorbit(0, -30);
-% camzoom(1.5);
-toc
-end
